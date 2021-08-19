@@ -1,0 +1,4 @@
+# ninja log v5
+0	18808	1628592365167849642	/home/jlli/VRCNet/utils/gridding/build/temp.linux-x86_64-3.6/gridding_cuda.o	a72518b362c464df
+1	37785	1628592384147848963	/home/jlli/VRCNet/utils/gridding/build/temp.linux-x86_64-3.6/gridding.o	d2019dd214f4252a
+1	38434	1628592384795848940	/home/jlli/VRCNet/utils/gridding/build/temp.linux-x86_64-3.6/gridding_reverse.o	cb7a55cbe5ceae94

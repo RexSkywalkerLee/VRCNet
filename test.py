@@ -10,7 +10,7 @@ from utils.train_utils import *
 from dataset import ShapeNetH5
 
 
-def test():
+def test(device_ids):
     dataset_test = ShapeNetH5(train=False, npoints=args.num_points)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size,
                                                   shuffle=False, num_workers=int(args.workers))
@@ -19,18 +19,21 @@ def test():
 
     # load model
     model_module = importlib.import_module('.%s' % args.model_name, 'models')
-    net = torch.nn.DataParallel(model_module.Model(args))
-    net.cuda()
+    net = torch.nn.DataParallel(model_module.Model(args), device_ids=device_ids)
+    net.to(f'cuda:{device_ids[0]}')
     net.module.load_state_dict(torch.load(args.load_model)['net_state_dict'])
     logging.info("%s's previous weights loaded." % args.model_name)
     net.eval()
 
-    metrics = ['cd_p', 'cd_t', 'emd', 'f1']
+    #metrics = ['cd_p', 'cd_t', 'emd', 'f1']
+    metrics = ['cd_p', 'cd_t', 'f1']
     test_loss_meters = {m: AverageValueMeter() for m in metrics}
-    test_loss_cat = torch.zeros([8, 4], dtype=torch.float32).cuda()
-    cat_num = torch.ones([8, 1], dtype=torch.float32).cuda() * 150
-    cat_name = ['airplane', 'cabinet', 'car', 'chair', 'lamp', 'sofa', 'table', 'vessel']
-    idx_to_plot = [i for i in range(0, 1200, 75)]
+    test_loss_cat = torch.zeros([16, 3], dtype=torch.float32).cuda()
+    cat_num = torch.ones([16, 1], dtype=torch.float32).cuda() * 150
+    cat_name = ['airplane', 'cabinet', 'car', 'chair', 'lamp', 'sofa', 'table', 'vessel',
+            'bed', 'bench', 'bookshelf', 'bus', 'guitar', 'motorbike', 'pistol', 'skateboard']
+    #idx_to_plot = [i for i in range(0, 1200, 75)]
+    idx_to_plot = [i for i in range(0, 41600, 150)]
 
     logging.info('Testing...')
     if args.save_vis:
@@ -46,8 +49,8 @@ def test():
             label, inputs_cpu, gt_cpu = data
             # mean_feature = None
 
-            inputs = inputs_cpu.float().cuda()
-            gt = gt_cpu.float().cuda()
+            inputs = inputs_cpu.float().to(f'cuda:{device_ids[0]}')
+            gt = gt_cpu.float().to(f'cuda:{device_ids[0]}')
             inputs = inputs.transpose(2, 1).contiguous()
             # result_dict = net(inputs, gt, is_training=False, mean_feature=mean_feature)
             result_dict = net(inputs, gt, is_training=False)
@@ -89,9 +92,16 @@ def test():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Test config file')
     parser.add_argument('-c', '--config', help='path to config file', required=True)
+    parser.add_argument('-g', '--cuda', help='visible cudas', required=True)
     arg = parser.parse_args()
     config_path = arg.config
     args = munch.munchify(yaml.safe_load(open(config_path)))
+    os.environ['CUDA_VISIBLE_DEVICES'] = arg.cuda
+    #device_ids = arg.cuda.split(',')
+    #device_ids = [int(d) for d in device_ids]
+    device_ids = list(range(len(arg.cuda.split(','))))
+    torch.set_num_threads(4)
+
 
     if not args.load_model:
         raise ValueError('Model path must be provided to load model!')
@@ -101,4 +111,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(os.path.join(log_dir, 'test.log')),
                                                       logging.StreamHandler(sys.stdout)])
 
-    test()
+    test(device_ids)

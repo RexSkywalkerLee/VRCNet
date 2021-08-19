@@ -1,3 +1,4 @@
+import os
 import torch.optim as optim
 import torch
 from utils.train_utils import *
@@ -8,25 +9,29 @@ import datetime
 import random
 import munch
 import yaml
-import os
 import sys
 import argparse
 from dataset import ShapeNetH5
 
-
-def train():
+def train(device_ids):
     logging.info(str(args))
-    metrics = ['cd_p', 'cd_t', 'emd', 'f1']
+    #metrics = ['cd_p', 'cd_t', 'emd', 'f1']
+    metrics = ['cd_p', 'cd_t', 'f1']
     best_epoch_losses = {m: (0, 0) if m == 'f1' else (0, math.inf) for m in metrics}
     train_loss_meter = AverageValueMeter()
     val_loss_meters = {m: AverageValueMeter() for m in metrics}
-
-    dataset = ShapeNetH5(train=True, npoints=args.num_points)
-    dataset_test = ShapeNetH5(train=False, npoints=args.num_points)
+#####
+    dataset = ShapeNetH5(train=True, novel_input=False, npoints=args.num_points)
+    dataset_test = ShapeNetH5(train=False, novel_input=False, npoints=args.num_points)
+    #dataset = ShapeNetH5(train=False, novel_input_only=True, npoints=args.num_points)
+    #dataset_test = ShapeNetH5(train=False, novel_input_only=True, npoints=args.num_points)
+#####
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size,
-                                             shuffle=True, num_workers=int(args.workers))
+                                             shuffle=True, num_workers=int(args.workers),
+                                             pin_memory=False)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size,
-                                                  shuffle=False, num_workers=int(args.workers))
+                                                  shuffle=False, num_workers=int(args.workers),
+                                                  pin_memory=False)
     logging.info('Length of train dataset:%d', len(dataset))
     logging.info('Length of test dataset:%d', len(dataset_test))
 
@@ -39,16 +44,23 @@ def train():
     torch.manual_seed(seed)
 
     model_module = importlib.import_module('.%s' % args.model_name, 'models')
-    net = torch.nn.DataParallel(model_module.Model(args))
-    net.cuda()
+    #####
+    #net = torch.nn.DataParallel(model_module.Model(args))
+    net = torch.nn.DataParallel(model_module.Model(args), device_ids=device_ids)
+    net.to(f'cuda:{device_ids[0]}')
+    #net.cuda()
+    #####
+    
     if hasattr(model_module, 'weights_init'):
         net.module.apply(model_module.weights_init)
 
     cascade_gan = (args.model_name == 'cascade')
     net_d = None
     if cascade_gan:
-        net_d = torch.nn.DataParallel(model_module.Discriminator(args))
-        net_d.cuda()
+        #net_d = torch.nn.DataParallel(model_module.Discriminator(args))
+        #net_d.cuda()
+        net_d = torch.nn.DataParallel(model_module.Discriminator(args), device_ids=device_ids)
+        net_d.to(f'cuda:{device_ids[0]}')
         net_d.module.apply(model_module.weights_init)
 
     lr = args.lr
@@ -84,7 +96,6 @@ def train():
         if cascade_gan:
             net_d.module.load_state_dict(ckpt['D_state_dict'])
         logging.info("%s's previous weights loaded." % args.model_name)
-
     for epoch in range(args.start_epoch, args.nepoch):
         train_loss_meter.reset()
         net.module.train()
@@ -120,8 +131,10 @@ def train():
             _, inputs, gt = data
             # mean_feature = None
 
-            inputs = inputs.float().cuda()
-            gt = gt.float().cuda()
+            #inputs = inputs.float().cuda()
+            #gt = gt.float().cuda()
+            inputs = inputs.float().to(f'cuda:{device_ids[0]}')
+            gt = gt.float().to(f'cuda:{device_ids[0]}')
             inputs = inputs.transpose(2, 1).contiguous()
             # out2, loss2, net_loss = net(inputs, gt, mean_feature=mean_feature, alpha=alpha)
             out2, loss2, net_loss = net(inputs, gt, alpha=alpha)
@@ -130,13 +143,15 @@ def train():
                 d_fake = generator_step(net_d, out2, net_loss, optimizer)
                 discriminator_step(net_d, gt, d_fake, optimizer_d)
             else:
-                train_loss_meter.update(net_loss.mean().item())
-                net_loss.backward(torch.ones(torch.cuda.device_count()).cuda())
+                #train_loss_meter.update(net_loss.mean().item())
+                train_loss_meter.update(net_loss.mean().detach())
+                #net_loss.backward(torch.ones(torch.cuda.device_count()).cuda())
+                net_loss.backward(torch.squeeze(torch.ones(len(device_ids))).to(device_ids[0]))
                 optimizer.step()
 
             if i % args.step_interval_to_print == 0:
-                logging.info(exp_name + ' train [%d: %d/%d]  loss_type: %s, fine_loss: %f total_loss: %f lr: %f' %
-                             (epoch, i, len(dataset) / args.batch_size, args.loss, loss2.mean().item(), net_loss.mean().item(), lr) + ' alpha: ' + str(alpha))
+                #logging.info(exp_name + ' train [%d: %d/%d]  loss_type: %s, fine_loss: %f total_loss: %f lr: %f' % (epoch, i, len(dataset) / args.batch_size, args.loss, loss2.mean().item(), net_loss.mean().item(), lr) + ' alpha: ' + str(alpha))
+                logging.info(exp_name + ' train [%d: %d/%d]  loss_type: %s, fine_loss: %f total_loss: %f lr: %f' % (epoch, i, len(dataset) / args.batch_size, args.loss, loss2.mean().detach(), net_loss.mean().detach(), lr) + ' alpha: ' + str(alpha))
 
         if epoch % args.epoch_interval_to_save == 0:
             save_model('%s/network.pth' % log_dir, net, net_d=net_d)
@@ -163,7 +178,8 @@ def val(net, curr_epoch_num, val_loss_meters, dataloader_test, best_epoch_losses
             # result_dict = net(inputs, gt, is_training=False, mean_feature=mean_feature)
             result_dict = net(inputs, gt, is_training=False)
             for k, v in val_loss_meters.items():
-                v.update(result_dict[k].mean().item())
+                #v.update(result_dict[k].mean().item())
+                v.update(result_dict[k].mean().detach())
 
         fmt = 'best_%s: %f [epoch %d]; '
         best_log = ''
@@ -188,9 +204,15 @@ def val(net, curr_epoch_num, val_loss_meters, dataloader_test, best_epoch_losses
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train config file')
     parser.add_argument('-c', '--config', help='path to config file', required=True)
+    parser.add_argument('-g', '--cuda', help='visible cudas', required=True)
     arg = parser.parse_args()
     config_path = arg.config
     args = munch.munchify(yaml.safe_load(open(config_path)))
+    os.environ['CUDA_VISIBLE_DEVICES'] = arg.cuda
+    #device_ids = arg.cuda.split(',')
+    #device_ids = [int(d) for d in device_ids]
+    device_ids = list(range(len(arg.cuda.split(','))))
+    torch.set_num_threads(4)
 
     time = datetime.datetime.now().isoformat()[:19]
     if args.load_model:
@@ -203,7 +225,7 @@ if __name__ == "__main__":
             os.makedirs(log_dir)
     logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(os.path.join(log_dir, 'train.log')),
                                                       logging.StreamHandler(sys.stdout)])
-    train()
+    train(device_ids)
 
 
 

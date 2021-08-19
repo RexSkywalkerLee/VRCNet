@@ -8,11 +8,11 @@ import os
 class ShapeNetH5(data.Dataset):
     def __init__(self, train=True, npoints=2048, novel_input=True, novel_input_only=False):
         if train:
-            self.input_path = './data/mvp_train_input.h5'
-            self.gt_path = './data/mvp_train_gt_%dpts.h5' % npoints
+            self.input_path = '../datasets/MVP/mvp_train_input.h5'
+            self.gt_path = '../datasets/MVP/mvp_train_gt_%dpts.h5' % npoints
         else:
-            self.input_path = './data/mvp_test_input.h5'
-            self.gt_path = './data/mvp_test_gt_%dpts.h5' % npoints
+            self.input_path = '../datasets/MVP/mvp_test_input.h5'
+            self.gt_path = '../datasets/MVP/mvp_test_gt_%dpts.h5' % npoints
         self.npoints = npoints
         self.train = train
 

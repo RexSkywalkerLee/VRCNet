@@ -1,0 +1,3 @@
+# ninja log v5
+0	12341	1628535563889881014	/home/jlli/VRCNet/utils/expansion_penalty/build/temp.linux-x86_64-3.6/expansion_penalty_cuda.o	cc84d674d08f7625
+0	25057	1628535576601880560	/home/jlli/VRCNet/utils/expansion_penalty/build/temp.linux-x86_64-3.6/expansion_penalty.o	bf0ec441afc9d1d3

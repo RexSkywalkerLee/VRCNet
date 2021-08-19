@@ -1,0 +1,6 @@
+[submodule "utils/ChamferDistancePytorch"]
+	path = utils/ChamferDistancePytorch
+	url = https://github.com/ThibaultGROUEIX/ChamferDistancePytorch
+[submodule "utils/s2cnn"]
+	path = utils/s2cnn
+	url = https://github.com/jonas-koehler/s2cnn
