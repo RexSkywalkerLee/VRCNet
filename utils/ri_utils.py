@@ -39,7 +39,7 @@ def rotation_transform(dataset, arbitrary=True, random_seed=None, sampling='unif
         dataset.gt_data[i] = dataset.gt_data[i] @ rotation_matrix
         dataset.input_data[26*i:26*i+25] = dataset.input_data[26*i:26*i+25] @ rotation_matrix
         
-        
+'''
 def point_projection_feature(points, pca=False, axis1=None, axis2=None, axis3=None):
     # Convert 3D position feature to 4D point projection feature
     # Input shape: [batch_size, num_point, 3]
@@ -110,7 +110,7 @@ def inverse_point_projection_feature(axis1, axis2, axis3, points):
     batch_size = points.size()[0]
     num_point = points.size()[1]
     
-    '''
+    
     Note: the SVD solution proposed by original paper is deprecated, as SVD does not give unique solution
     
     # Compute inner product of axises
@@ -130,7 +130,7 @@ def inverse_point_projection_feature(axis1, axis2, axis3, points):
     U, S, Vh = torch.linalg.svd(M)
     S = torch.sqrt(S)
     C = U @ torch.diag_embed(S) @ Vh
-    '''
+    
     
     A = torch.cat([axis1.unsqueeze(2), axis2.unsqueeze(2), axis3.unsqueeze(2)], dim=2)
     A = torch.transpose(A, 1, 2).unsqueeze(1).repeat(1, num_point, 1, 1)
@@ -140,19 +140,24 @@ def inverse_point_projection_feature(axis1, axis2, axis3, points):
     X = X / (torch.norm(X, 2, 2, keepdim=True) + 1e-7) * points[:, :, 3].unsqueeze(2)
     
     return X.squeeze()
+'''
 
-
-def point_ortho_feature(points, axis1=None, axis2=None, axis3=None, pca=True):
+def point_projection_feature(points, axis1=None, axis2=None, axis3=None, method='pca'):
     # Input shape: [*, num_point, 3]
     # Return: [*, num_point, 3]
-    batch_size = points.size()[0]
     num_point = points.size()[-2]
+    batch_size = points.size()[0]
+    points_reshape = points.view(-1, num_point, 3)
+    pseudo_batch_size = points_reshape.size()[0]
             
     if axis1 is not None:
         axis1, axis2, axis3 = axis1, axis2, axis3
-    else:
+        axis1 = axis1.view(-1, 3)
+        axis2 = axis2.view(-1, 3)
+        axis3 = axis3.view(-1, 3)
+    elif method == 'pca':
         # Using PCA to define 3 axises
-        _, _, V = torch.pca_lowrank(points)
+        _, _, V = torch.pca_lowrank(points_reshape)
         axis1, axis2, axis3 = V.chunk(3, dim=-1)
         axis1 = axis1.squeeze()
         axis2 = axis2.squeeze()
@@ -160,17 +165,38 @@ def point_ortho_feature(points, axis1=None, axis2=None, axis3=None, pca=True):
         axis1 = axis1 / (torch.norm(axis1, 2, -1, keepdim=True) + 1e-7)
         axis2 = axis2 / (torch.norm(axis2, 2, -1, keepdim=True) + 1e-7)
         axis3 = axis3 / (torch.norm(axis3, 2, -1, keepdim=True) + 1e-7)
+    elif method == 'srinet':
+        vector_norm = torch.sqrt(torch.sum(points_reshape * points_reshape, 2, keepdim=False))
+        # Calculate 3 axises
+    
+        # Axis 1 is the vector with the maximum norm
+        _, ids1 = torch.max(vector_norm, 1, keepdim=False)
+        batch_indices = range(pseudo_batch_size)
+        axis1 = torch.cat([points_reshape[batch_indice, id1, :].unsqueeze(0) for (batch_indice, id1) in zip(batch_indices, ids1)], 0)
+        axis1 = axis1 / (torch.norm(axis1, 2, 1, keepdim=True) + 1e-7)
+    
+        # Axis 2 is the vector with the minimum norm
+        _, ids2 = torch.min(vector_norm, 1, keepdim=False)
+        axis2 = torch.cat([points_reshape[batch_indice, id2, :].unsqueeze(0) for (batch_indice, id2) in zip(batch_indices, ids2)], 0)
+        axis2 = axis2 / (torch.norm(axis2, 2, 1, keepdim=True) + 1e-7)
         
-    c1 = torch.sum(points * axis1.unsqueeze(-2), -1, keepdim=True)
-    c2 = torch.sum(points * axis2.unsqueeze(-2), -1, keepdim=True)
-    c3 = torch.sum(points * axis3.unsqueeze(-2), -1, keepdim=True)
+        # Axis 3 is the cross result of axis 1 and axis 2
+        axis3 = torch.cross(axis1, axis2, dim=1)
+        axis3 = axis3 / (torch.norm(axis3, 2, 1, keepdim=True) + 1e-7)
         
-    new_c = torch.cat([c1, c2, c3], -1)
+    c1 = torch.sum(points_reshape * axis1.unsqueeze(1), 2, keepdim=True)
+    c2 = torch.sum(points_reshape * axis2.unsqueeze(1), 2, keepdim=True)
+    c3 = torch.sum(points_reshape * axis3.unsqueeze(1), 2, keepdim=True)
+        
+    new_c = torch.cat([c1, c2, c3], 2)
+    if points.dim() == 4:
+        new_c = new_c.view(batch_size, -1, num_point, 3)
+    
     assert (new_c.size() == points.size())
     return axis1, axis2, axis3, new_c
 
 
-def inverse_point_ortho_feature(axis1, axis2, axis3, points):
+def inverse_point_projection_feature(axis1, axis2, axis3, points):
     # Axis shape: [batch_size, 3]
     # Input shape: [batch_size, num_point, 3]
     # Return: [batch_size, num_point, 3]
@@ -188,3 +214,25 @@ def inverse_point_ortho_feature(axis1, axis2, axis3, points):
     X = torch.matmul(torch.linalg.pinv(A), points.unsqueeze(3)).squeeze()
     
     return X.squeeze()
+
+
+def acenn_rir_feature(points, center):
+    batch_size, num_point, k, _ = points.size()
+    
+    axis1 = center / (torch.norm(center, 2, 2, keepdim=True) + 1e-7)
+    
+    m = points.mean(dim=2, keepdim=False)
+    axis2 = m - axis1 * torch.sum(m * axis1, 2, keepdim=True)
+    axis2 = axis2 / (torch.norm(axis2, 2, 2, keepdim=True) + 1e-7)
+    
+    axis3 = torch.cross(axis1, axis2, dim=2)
+    axis3 = axis3 / (torch.norm(axis3, 2, 2, keepdim=True) + 1e-7)
+    
+    c1 = torch.sum(points * axis1.unsqueeze(2), 3, keepdim=True)
+    c2 = torch.sum(points * axis2.unsqueeze(2), 3, keepdim=True)
+    c3 = torch.sum(points * axis3.unsqueeze(2), 3, keepdim=True)
+        
+    new_c = torch.cat([c1, c2, c3], 3)
+    
+    assert (new_c.size() == points.size())
+    return axis1, axis2, axis3, new_c

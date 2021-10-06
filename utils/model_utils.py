@@ -114,10 +114,13 @@ def calc_emd(output, gt, eps=0.005, iterations=50):
     return emd_out
 
 
-def furthest_point_sampling(point_input, num_samples):
-    # Input size [B, num_points, 3]
+def furthest_point_sampling(point_input, num_samples, point_feature=None):
+    # Input size [B, N, 3], [B, C, N]
     p_idx = pn2.furthest_point_sample(point_input, num_samples)
     point_output = pn2.gather_operation(point_input.transpose(1, 2).contiguous(), p_idx).transpose(1, 2).contiguous()
+    if point_feature is not None:
+        feature_output = pn2.gather_operation(point_feature, p_idx)
+        return p_idx, point_output, feature_output
     return p_idx, point_output
     
     
@@ -336,3 +339,20 @@ def three_nn_upsampling(target_points, source_points):
     weight = (1.0 / dist) / norm
 
     return idx, weight
+
+'''
+def graph_generation(points, features, k):
+    # Points [B, 3, N]
+    # Features [B, C, N]
+    idx = knn(points, k=k)
+    points_knn = get_edge_features(points, idx)
+    points_knn = points_knn - points.unsqueeze(2).repeat(1,1,self.knn,1)
+    batch_size, num_points, _ = idx.size()
+    graphs = []
+    u = torch.arange(0, num_points, device=idx.get_device()).repeat_interleave(k)
+    for i in range(batch_size):
+        v = idx[i].view(-1)
+        g = dgl.graph(u, v)
+        bg.ndata['x'] = features[i].transpose(0, 1).contiguous()
+        bg.edata['y'] = points_knn[i].transpose(0, 2).contiguous().view(-1, 3)
+'''

@@ -24,10 +24,10 @@ def train(device_ids):
     train_loss_meter = AverageValueMeter()
     val_loss_meters = {m: AverageValueMeter() for m in metrics}
 
-    dataset = ShapeNetH5(train=True, novel_input=False, npoints=args.num_points)
-    dataset_test = ShapeNetH5(train=False, novel_input=False, npoints=args.num_points)
-    #dataset = ShapeNetH5(train=False, novel_input_only=True, npoints=args.num_points)
-    #dataset_test = ShapeNetH5(train=False, novel_input_only=True, npoints=args.num_points)
+    #dataset = ShapeNetH5(train=True, novel_input=False, npoints=args.num_points)
+    #dataset_test = ShapeNetH5(train=False, novel_input=False, npoints=args.num_points)
+    dataset = ShapeNetH5(train=False, novel_input_only=True, npoints=args.num_points)
+    dataset_test = ShapeNetH5(train=False, novel_input_only=True, npoints=args.num_points)
     
     if not args.manual_seed:
         seed = random.randint(1, 10000)
@@ -39,14 +39,14 @@ def train(device_ids):
     
     #####
     #Adding rotational variations to train set
-    rotation_transform(dataset, arbitrary=True)
+    #rotation_transform(dataset, arbitrary=True)
     print('After train set transform:')
     print(dataset.input_data.shape)
     print(dataset.gt_data.shape)
     print(dataset.labels.shape)
 
     #Adding rotational variations to test set
-    rotation_transform(dataset_test, arbitrary=True)
+    #rotation_transform(dataset_test, arbitrary=True)
     print('After test set transform:')
     print(dataset_test.input_data.shape)
     print(dataset_test.gt_data.shape)
